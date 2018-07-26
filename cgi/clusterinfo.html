@@ -1,0 +1,417 @@
+#!/usr/bin/python
+
+print "Content-type:text/html\r\n\r\n"
+
+import HTML
+import os
+import requests
+import urllib2
+import httplib2
+import json
+import boto3
+import time
+from requests.auth import HTTPBasicAuth
+from urllib2 import URLError
+from operator import truediv
+
+scm_host = 'clouderamanager.organization.com'
+scm_port = '7180'
+scm_user = 'username'
+scm_password = 'password'
+scm_scheme = 'https'
+scm_api = 'v16'
+cluster_name = 'cluster001'
+AWS_ACCESS_KEY_ID = 'access_key'
+AWS_SECRET_ACCESS_KEY = 'secret_access_key'
+AWS_DEFAULT_REGION = 'region'
+service_url = 'http://jupyterhub.organization.com:8000/hub/api/users'
+jupyter_token = 'jupyter_token'
+hdfs_host = 'hdfs.organization.com'
+hdfs_port = '50070'
+hdfs_scheme = 'https'
+hdfs_query = '/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo'
+
+headers = {'content-type': 'application/json'}
+
+def check_scm_server():
+    service_url = scm_scheme + '://' + scm_host + ':' + scm_port + '/api/' + scm_api + '/clusters/'
+    #print (service_url)
+    request = requests.get(service_url, auth=HTTPBasicAuth(scm_user, scm_password))
+    response = json.loads(request.content)
+    table_data = [ ['Cluster Name', response['items'][0]['name']],
+                     ['Cluster Display Name', response['items'][0]['displayName']],
+                     ['Cluster Version', response['items'][0]['version'] + ' ' +  response['items'][0]['fullVersion']],
+                     ['Cluster Status', response['items'][0]['entityStatus']],
+                     ['Maintenance Mode', str(response['items'][0]['maintenanceMode'])],
+                     ]
+    table_html = HTML.table(table_data)
+    print '<H1>CDH Cluster general infomation:</H1>'
+    print(table_html)
+    return table_html
+
+def check_hdfs_cluster():
+    try:
+        service_url = hdfs_scheme + '://' + hdfs_host + ':' + hdfs_port + hdfs_query
+        #print(service_url)
+        req = urllib2.urlopen(service_url)
+        response = json.load(req)
+        response1 = json.dumps(response)
+        response2 = json.loads(response1)
+        if str(response2['beans'][0]['Safemode']) == '':
+            nn_stats = 'No'
+        else:
+            nn_stats = 'Yes'
+
+        table_object = [['TotalBlocks', str(response2['beans'][0]['TotalBlocks'])],
+                        ['NumberOfMissingBlocks', str(response2['beans'][0]['NumberOfMissingBlocks'])],
+                        ['NumberOfMissingBlocksWithReplicationFactorOne', str(response2['beans'][0]['NumberOfMissingBlocksWithReplicationFactorOne'])],
+                        ['Used', str(response2['beans'][0]['Used'])],
+                        ['Free', str(response2['beans'][0]['Free'])],
+                        ['BlockPoolUsedSpace', str(response2['beans'][0]['BlockPoolUsedSpace'])],
+                        ['NonDfsUsedSpace', str(response2['beans'][0]['NonDfsUsedSpace'])],
+                        ['PercentUsed', str(response2['beans'][0]['PercentUsed'])],
+                        ['PercentBlockPoolUsed', str(response2['beans'][0]['PercentBlockPoolUsed'])],
+                        ['TotalFiles', str(response2['beans'][0]['TotalFiles'])],
+                        ['NNStarted', str(response2['beans'][0]['NNStarted'])],
+                        ['Safemode', nn_stats]
+                        ]
+
+        table_html = HTML.table(table_object)
+
+        print '<H1>HDFS Cluster:</H1>'
+        print(table_html)
+        return table_html
+
+    except URLError as e:
+        print e
+
+
+def check_cdh():
+    service_url = scm_scheme + '://' + scm_host + ':' + scm_port + '/api/' + scm_api + '/clusters/' + cluster_name + '/parcels'
+    #print(service_url)
+    request = requests.get(service_url, auth=HTTPBasicAuth(scm_user, scm_password))
+    response = json.loads(request.content)
+
+    table_header = ['Product', 'Version', 'Status']
+    table_data = []
+
+    for i in range(len(response['items'])):
+        table_object = [response['items'][i]['product'], response['items'][i]['version'], response['items'][i]['stage']]
+        table_data.append(table_object)
+
+    table_html = HTML.table(table_data, header_row=table_header)
+    print '<H1>CDH Cluster parcel and versions:</H1>'
+    print(table_html)
+    return table_html
+
+def check_cdh_sessions():
+    service_url = scm_scheme + '://' + scm_host + ':' + scm_port + '/api/' + scm_api + '/users/sessions'
+    #print service_url
+    request = requests.get(service_url, auth=HTTPBasicAuth(scm_user, scm_password))
+    response = json.loads(request.content)
+    table_header = ['User', 'Last Request']
+    table_data = []
+    
+    
+    if len(response['items']) == 0:
+        print '<H1>Cloudera Manager active user logins: 0</H1>'
+        #table_object = ['-', '-']
+        #table_data.append(table_object)
+	return None
+    else:
+        for i in range(len(response['items'])):
+            table_object = [response['items'][i]['name'], response['items'][i]['lastRequest']]
+            table_data.append(table_object)
+
+        table_html = HTML.table(table_data, header_row=table_header)
+
+        print '<H1>Cloudera Manager active user logins:</H1>'
+        print(table_html)
+        return table_html
+
+def check_cdh_services():
+    service_url = scm_scheme + '://' + scm_host + ':' + scm_port + '/api/' + scm_api + '/clusters/' + cluster_name + '/services'
+    #print(service_url)
+    request = requests.get(service_url, auth=HTTPBasicAuth(scm_user, scm_password))
+    response = json.loads(request.content)
+
+    table_header = ['Service Name', 'Service State', 'Maintenance Mode', 'Health Summary', 'Entity Status', 'Config Staleness Status', 'Client Config Staleness Status']
+    table_data = []
+    for i in range(len(response['items'])):
+        table_object = [response['items'][i]['name'], response['items'][i]['serviceState'],
+                    str(response['items'][i]['maintenanceMode']), response['items'][i]['healthSummary'],
+                    response['items'][i]['entityStatus'], response['items'][i]['configStalenessStatus'],
+                    response['items'][i]['clientConfigStalenessStatus']]
+        table_data.append(table_object)
+
+    table_html = HTML.table(table_data, header_row=table_header)
+
+    print '<H1>CDH Service:</H1>'
+    print(table_html)
+    return table_html
+
+def check_cdh_health():
+    service_url = scm_scheme + '://' + scm_host + ':' + scm_port + '/api/' + scm_api + '/clusters/' + cluster_name + '/services'
+    # print(service_url)
+    request = requests.get(service_url, auth=HTTPBasicAuth(scm_user, scm_password))
+    response = json.loads(request.content)
+
+    table_header = ['Service', 'Service Component', 'Health Status']
+    table_data = []
+
+    for i in range(len(response['items'])):
+        for j in range(len(response['items'][i]['healthChecks'])):
+            #print(str(response['items'][i]['name']), str(response['items'][i]['healthChecks'][j]['name']), str(response['items'][i]['healthChecks'][j]['summary']))
+            table_object = [str(response['items'][i]['name']), str(response['items'][i]['healthChecks'][j]['name']), str(response['items'][i]['healthChecks'][j]['summary'])]
+            table_data.append(table_object)
+    table_html = HTML.table(table_data, header_row=table_header)
+
+    print '<H1>CDH services health status:</H1>'
+    print(table_html)
+    return table_html
+
+def check_cdh_hosts():
+    service_url = scm_scheme + '://' + scm_host + ':' + scm_port + '/api/' + scm_api + '/hosts/'
+    #print(service_url)
+    request = requests.get(service_url, auth=HTTPBasicAuth(scm_user, scm_password))
+    response = json.loads(request.content)
+
+    table_header = ['Host Name',
+                    'Last Heart Beat',
+                    'Health Summary',
+                    'Commission State',
+                    'Entity Status',
+                    'Maintenance Mode',
+                    'Log directory free space',
+                    'Parcel directory free space',
+                    'Process directory free space',
+                    'Clock Offset',
+                    'DNS resolution',
+                    'Memory Swapping',
+                    'Network frame errors',
+                    'Network interfaces slow mode',
+                    'SCM health']
+
+    table_data = []
+    for i in range(len(response['items'])):
+        host_url = service_url + response['items'][i]['hostId']
+        #print host_url
+        host_request = requests.get(host_url, auth=HTTPBasicAuth(scm_user,scm_password))
+        host_response = json.loads(host_request.content)
+
+        health_check_str = []
+
+        for j in range(len(host_response['healthChecks'])):
+            #health_check_str += str(host_response['healthChecks'][j]['summary'])
+            health_check_str.append(str(host_response['healthChecks'][j]['summary']))
+            table_object0 = [host_response['hostname'],
+                        host_response['lastHeartbeat'],
+                        host_response['healthSummary'],
+                        host_response['commissionState'],
+                        host_response['entityStatus'],
+                        str(host_response['maintenanceMode'])
+                        ]
+
+        data = table_object0 + health_check_str
+        table_data.append(data)
+
+    table_html = HTML.table(table_data, header_row=table_header)
+
+    print '<H1>CDH Hosts:</H1>'
+    print(table_html)
+    return table_html
+
+def check_yarn_cluster():
+    rmurl = 'https://gl-lab.cloudenablers.com:50011/ws/v1/cluster/metrics'
+    response = urllib2.urlopen(rmurl)
+    data = json.load(response)
+
+    total_mem = data['clusterMetrics']['totalMB'] / 1024
+    available_mem = data['clusterMetrics']['availableMB'] / 1024
+    alloted_mem = data['clusterMetrics']['allocatedMB'] / 1024
+
+    mem = truediv(alloted_mem, total_mem)
+    mem_used = mem * 100
+    mem_available = 100 - mem_used
+
+    total_core = data['clusterMetrics']['totalVirtualCores']
+    available_core = data['clusterMetrics']['availableVirtualCores']
+    alloted_core = data['clusterMetrics']['allocatedVirtualCores']
+
+    core = truediv(alloted_core, total_core)
+    core_used = core * 100
+    core_available = 100 - core_used
+
+    total_nodes = (data['clusterMetrics']['activeNodes'] + data['clusterMetrics']['unhealthyNodes'] +
+                    data['clusterMetrics']['decommissionedNodes'])
+    active = truediv(data['clusterMetrics']['activeNodes'], total_nodes)
+    unhealthy = truediv(data['clusterMetrics']['unhealthyNodes'], total_nodes)
+    decommissioned = truediv(data['clusterMetrics']['decommissionedNodes'], total_nodes)
+
+    active_nodes = active * 100
+    unhealthy_nodes = unhealthy * 100
+    decommissioned_nodes = decommissioned * 100
+
+    table_data = [['Total Cores', str(total_core)],
+                  ['Available Cores', str(available_core)],
+                  ['Alloted Cores', str(alloted_core)],
+                  ['Core Used Percentage', str(core_used)],
+                  ['Available Core Percentage', str(core_available)],
+                  ['Total Memory', str(total_mem)],
+                  ['Available Memory', str(available_mem)],
+                  ['Alloted Memory', str(alloted_mem)],
+                  ['Memory Used Percentage', str(mem_used)],
+                  ['Available Memory Percentage', str(mem_available)],
+                  ['Total Nodes', str(total_nodes)],
+                  ['Active Nodes', str(active)],
+                  ['Unhealthy Nodes', str(unhealthy)],
+                  ['Decommissioned Nodes', str(decommissioned)],
+                  ['Active Nodes Percentage', str(active_nodes)],
+                  ['Unhealthy Nodes Percentage', str(unhealthy_nodes)],
+                  ['Decommissioned Nodes Percentage', str(decommissioned_nodes)]
+                  ]
+    table_html = HTML.table(table_data)
+
+    print '<H1>YARN Cluster:</H1>'
+    print table_html
+    return table_html
+
+
+client = boto3.client('autoscaling', aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY, region_name=AWS_DEFAULT_REGION)
+def get_autoscaling_instances():
+    response = client.describe_auto_scaling_instances()
+    for i in range(len(response['AutoScalingInstances'])):
+        print(response['AutoScalingInstances'][i]['AutoScalingGroupName']
+            + ',' + response['AutoScalingInstances'][i]['AvailabilityZone']
+            + ',' + response['AutoScalingInstances'][i]['HealthStatus']
+            + ',' + response['AutoScalingInstances'][i]['InstanceId']
+            + ',' + response['AutoScalingInstances'][i]['LaunchConfigurationName']
+            + ',' + response['AutoScalingInstances'][i]['LifecycleState']
+            + ',' + str(response['AutoScalingInstances'][i]['ProtectedFromScaleIn']))
+
+def get_autoscaling_groups():
+    response = client.describe_auto_scaling_groups()
+    #print len(response['AutoScalingGroups'])
+
+    table_header = [
+        'AutoScalingGroupName',
+        'MinSize',
+        'MaxSize',
+        'DesiredCapacity',
+        'LaunchConfigurationName',
+        'NewInstancesProtectedFromScaleIn',
+        'HealthCheckType',
+        'DefaultCooldown'
+    ]
+
+    table_data = []
+    for i in range(len(response['AutoScalingGroups'])):
+        data = [
+            response['AutoScalingGroups'][i]['AutoScalingGroupName'],
+            str(response['AutoScalingGroups'][i]['MinSize']),
+            str(response['AutoScalingGroups'][i]['MaxSize']),
+            str(response['AutoScalingGroups'][i]['DesiredCapacity']),
+            response['AutoScalingGroups'][i]['LaunchConfigurationName'],
+            str(response['AutoScalingGroups'][i]['NewInstancesProtectedFromScaleIn']),
+            response['AutoScalingGroups'][i]['HealthCheckType'],
+            str(response['AutoScalingGroups'][i]['DefaultCooldown'])
+        ]
+
+        table_data.append(data)
+
+    table_html = HTML.table(table_data, header_row=table_header)
+
+    print '<H1>Autoscaling Groups:</H1>'
+    print table_html
+    return table_html
+
+
+def get_lb_listeners():
+    client = boto3.client('elbv2', aws_access_key_id=AWS_ACCESS_KEY_ID,
+                          aws_secret_access_key=AWS_SECRET_ACCESS_KEY, region_name=AWS_DEFAULT_REGION)
+
+    response = client.describe_target_groups()
+
+    table_header = [
+        'TargetGroupName',
+        'TargetType',
+        'Protocol',
+        'Port',
+        'HealthCheckPort',
+        'HealthCheckProtocol',
+        'HealthCheckIntervalSeconds',
+        'UnhealthyThresholdCount',
+        'HealthyThresholdCount',
+        'HealthCheckTimeoutSeconds'
+    ]
+
+    table_data = []
+    for i in range(len(response['TargetGroups'])):
+        data = []
+        data = [
+            response['TargetGroups'][i]['TargetGroupName'],
+            response['TargetGroups'][i]['TargetType'],
+            response['TargetGroups'][i]['Protocol'],
+            response['TargetGroups'][i]['Port'],
+            response['TargetGroups'][i]['HealthCheckPort'],
+            response['TargetGroups'][i]['HealthCheckProtocol'],
+            response['TargetGroups'][i]['HealthCheckIntervalSeconds'],
+            response['TargetGroups'][i]['UnhealthyThresholdCount'],
+            response['TargetGroups'][i]['HealthyThresholdCount'],
+            response['TargetGroups'][i]['HealthCheckTimeoutSeconds']
+        ]
+
+        table_data.append(data)
+
+    table_html = HTML.table(table_data, header_row=table_header)
+
+    print '<H1>Application loadbalancer listeners:</H1>'
+    print table_html
+    return table_html
+
+
+def check_jupyter_sessions(service_url, jupyter_token):
+    service_url = service_url
+    headers = {'Authorization': 'token ' + jupyter_token}
+    req = requests.get(url=service_url,  headers=headers)
+    users =  json.loads(req.text)
+    table_header = [
+        'User',
+        'Last Request'
+    ]
+    #print service_url
+    #print users
+    table_data = []
+    count = 0
+    for i in range(len(users)):
+        if users[i]['server'] == None:
+            #print(users[i]['name'] + ',' + 'null' + ',' + users[i]['last_activity'])
+            continue
+        else:
+            table_object = [users[i]['name'],  users[i]['last_activity']]
+            table_data.append(table_object)
+            count = count + 1
+    #print count
+    if count == 0:
+        table_html = ''
+        print '<H1>Jupyterhub active user logins: 0</H1>'
+    else:
+        table_html = HTML.table(table_data, header_row=table_header)
+        print '<H1>Jupyterhub active user logins: ' + str(count) + '</H1>'
+
+    print(table_html)
+    return table_html
+
+
+check_jupyter_sessions(service_url,jupyter_token)
+check_cdh_sessions()
+check_scm_server()
+check_cdh()
+check_yarn_cluster()
+check_hdfs_cluster()
+check_cdh_services()
+check_cdh_health()
+check_cdh_hosts()
+##get_autoscaling_instances()
+get_autoscaling_groups()
+get_lb_listeners()
