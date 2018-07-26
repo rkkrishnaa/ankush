@@ -1,0 +1,44 @@
+#!/usr/bin/python
+
+print "Content-type:text/html\r\n\r\n"
+
+import HTML
+import boto3
+
+AWS_ACCESS_KEY_ID = 'access_key'
+AWS_SECRET_ACCESS_KEY = 'secret_Access_key'
+AWS_DEFAULT_REGION = 'region'
+
+client = boto3.client('ec2', aws_access_key_id=AWS_ACCESS_KEY_ID, aws_secret_access_key=AWS_SECRET_ACCESS_KEY, region_name=AWS_DEFAULT_REGION)
+response = client.describe_instances(Filters=[{'Name':'tag:lab', 'Values':['cluster']}])
+
+table_header = [
+        'S.No',
+	      'VM Name',
+        'IP Address',
+        'VM State',
+	      'Image Id',
+	      'Endpoint'
+    ]
+
+table_data = []
+count = 1
+for reservation in response["Reservations"]:
+	for instance in reservation["Instances"]:
+		for tag in instance["Tags"]:
+			if tag['Key'] == 'Name':
+				pass
+				vm_name = tag['Value']
+				endpoint = 'http://' + str(instance['PublicIpAddress']) 
+				table_object = [str(count), vm_name, instance['PublicIpAddress'], instance['State']['Name'], instance['ImageId'], endpoint]
+				table_data.append(table_object)
+				count = count + 1
+
+print '<H1>Hadoop cluster host access details:</H1>'
+print '<H2>VM Configs: Centos, 4Vcore, 32GB RAM</H2>'
+print '<H2>Username: user.organization.com</H2>'
+print '<H2>Password: *******</H2>'
+print '<H3>Note: Users are recommended to change their login password after login for the first time</H3>'
+
+table_html = HTML.table(table_data, header_row=table_header)
+print table_html
