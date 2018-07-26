@@ -1,0 +1,64 @@
+#!/usr/bin/python
+
+print "Content-type:text/html\r\n\r\n"
+
+import HTML
+import requests
+import json
+
+jupyter_hosts = ['jupyter_host1', 'jupyter_host2', 'jupyter_host3', 'jupyter_host4', 'jupyter_host5']
+jupyter_tokens = ['jupyter_host1_token', 'jupyter_host2_token', 'jupyter_host3_token', 'jupyter_host4_token', 'jupyter_host5_token']
+
+jupyter_host_count = len(jupyter_hosts)
+
+def check_jupyter_sessions(service_url, jupyter_token, jupyter_host='localhost'):
+    service_url = service_url
+    headers = {'Authorization': 'token ' + jupyter_token}
+    req = requests.get(url=service_url,  headers=headers)
+    users =  json.loads(req.text)
+    table_header = [
+        'User',
+        'Last Request'
+    ]
+    table_data = []
+    table_data1 = []
+    count = 0
+    for i in range(len(users)):
+        if users[i]['server'] == None:
+	    if users[i]['name'] == 'root':
+		continue
+	    table_object1 = [users[i]['name'],  users[i]['last_activity']]
+            table_data1.append(table_object1)
+            #print(users[i]['name'] + ',' + 'null' + ',' + users[i]['last_activity'])
+            #continue
+        else:
+            table_object = [users[i]['name'],  users[i]['last_activity']]
+            table_data.append(table_object)
+            count = count + 1
+    if count == 0:
+        table_html = ''
+        print '<H1>Jupyterhub active user login count on host ' + jupyter_host + ': 0</H1>'
+	#print '<H1>Jupyterhub active user login count: 0</H1>'
+	table_html1 = HTML.table(table_data1, header_row=table_header)
+    else:
+        table_html = HTML.table(table_data, header_row=table_header)
+        print '<H1>Jupyterhub active user login count on host ' + jupyter_host + ': ' + str(count) + '</H1>'
+	#print '<H1>Jupyterhub active user login count: ' + str(count) + '</H1>'
+	table_html1 = HTML.table(table_data1, header_row=table_header)
+    print(table_html)
+    print '<H1>Jupyterhub recently logged in user details on host ' + jupyter_host + ':</H1>'
+    #print '<H1>Jupyterhub recently logged in user details:</H1>'
+    print(table_html1)
+    return count
+
+num = 0
+for i in range(jupyter_host_count):
+	try:
+        	service_url = 'http://'+ jupyter_hosts[i] + ':8000/hub/api/users'
+        	jupyter_token = jupyter_tokens[i]
+        	num = num + check_jupyter_sessions(service_url, jupyter_token, jupyter_host=jupyter_hosts[i])
+	except:
+		jupyter_host=jupyter_hosts[i]
+		print '<H1>Host ' + jupyter_host + ' is unavailable</H1>'
+		pass
+print '<H1>Jupyterhub active user login count: ' , num
